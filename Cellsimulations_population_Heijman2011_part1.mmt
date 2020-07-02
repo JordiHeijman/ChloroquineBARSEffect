@@ -1,0 +1,121 @@
+[[model]]
+
+[engine]
+time = 0 bind time
+    in [ms]
+
+[membrane]
+level = 0 bind pace
+
+[[protocol]]
+# Level  Start    Length   Period   Multiplier
+1.0      100.0    0.5      1000.0   0
+
+[[script]]
+import matplotlib.pyplot as pl
+import numpy as np
+import myokit
+from scipy.optimize import curve_fit
+import myokit.lib.fit as fit
+
+# Get model and protocol, create simulation
+m, p, s = myokit.load("Canine LV Epi (Heijman-2011).mmt")
+
+import csv
+with open("POPULATION DATA/population_data_heijman.csv", 'wb') as f, open("POPULATION DATA/population_Vm_heijman.csv", 'wb') as g, open("POPULATION DATA/population_Cai_heijman.csv", 'wb') as h:
+    writer1 = csv.writer(f, delimiter=",")
+    writer2 = csv.writer(g, delimiter=",")
+    writer3 = csv.writer(h, delimiter=",") 
+    for i in range(2): 
+        ################################################################
+        def runProtocol(m, bcl, ISO_dose, chloroquine_dose):
+            p = myokit.Protocol()
+            p.schedule(1,10,1.0,bcl, 0)
+            
+            # IC50 data from Crumb et al 2016
+            ina_block = 0 + (chloroquine_dose**0.7034)*(1 - 0)/(chloroquine_dose**0.7034 + 250.9**0.7034)
+            inal_block = 0 + (chloroquine_dose**0.5205)*(1 - 0)/(chloroquine_dose**0.5205 + 198**0.5205)
+            ikr_block = 0 + (chloroquine_dose**0.6141)*(1 - 0)/(chloroquine_dose**0.6141 + 6.892**0.6141)
+            iks_block = 0 + (chloroquine_dose**1.075)*(1 - 0)/(chloroquine_dose**1.075 + 110.7**1.075)
+            ik1_block = 0 + (chloroquine_dose**0.8199)*(1 - 0)/(chloroquine_dose**0.8199 + 10.59**0.8199)
+            ito_block = 0 + (chloroquine_dose**0.2734)*(1 - 0)/(chloroquine_dose**0.2734 + 4783325**0.2734)
+            ical_block = 0 + (chloroquine_dose**0.2396)*(1 - 0)/(chloroquine_dose**0.2396 + 3253459**0.2396)
+            
+            print "INaB Chloroquine " + str(chloroquine_dose) + " mcM = " + str(ina_block) + ", INaLB = " + str(inal_block) + ", IKrB = " + str(ikr_block) + ", IKsB = " + str(iks_block) + ", IK1B = " + str(ik1_block) + ", ItoB = " + str(ito_block) + ", ICaLB = " + str(ical_block)
+            
+            mu = 0 #mean
+            sigma = 0.20 # standard deviation
+            repeat = 1 # amount of random number
+            var_ina = np.random.normal(mu, sigma, repeat)
+            var_ical = np.random.normal(mu, sigma, repeat)
+            var_ito = np.random.normal(mu, sigma, repeat)
+            var_ikr = np.random.normal(mu, sigma, repeat)
+            var_ik1 = np.random.normal(mu, sigma, repeat)
+            var_iks = np.random.normal(mu, sigma, repeat)
+            var_incx = np.random.normal(mu, sigma, repeat)
+            var_ikur = np.random.normal(mu, sigma, repeat)
+            var_inal = np.random.normal(mu, sigma, repeat)
+            var_inak = np.random.normal(mu, sigma, repeat)     
+            
+            s = myokit.Simulation(m, p, apd_var='membrane.V')
+            s.set_constant('iso.L', ISO_dose)
+            s.set_constant('parameters.chloro_INa_Block', ina_block)
+            s.set_constant('parameters.chloro_INaL_Block', inal_block)
+            s.set_constant('parameters.chloro_IKr_Block', ikr_block)
+            s.set_constant('parameters.chloro_IKs_Block', iks_block)
+            s.set_constant('parameters.chloro_IK1_Block', ik1_block)
+            s.set_constant('parameters.chloro_Ito_Block', ito_block)
+            s.set_constant('parameters.chloro_ICaL_Block', ical_block)
+            s.set_constant('parameters.ICaL_Block', var_ical[0])
+            s.set_constant('parameters.IK1_Block', var_ik1[0])
+            s.set_constant('parameters.IKr_Block', var_ikr[0])
+            s.set_constant('parameters.IKs_Block', var_iks[0])
+            s.set_constant('parameters.IKur_Block', var_ikur[0])
+            s.set_constant('parameters.INa_Block', var_ina[0])
+            s.set_constant('parameters.INaL_Block', var_inal[0])
+            s.set_constant('parameters.INaK_Block', var_inak[0])
+            s.set_constant('parameters.INCX_Block', var_incx[0])
+            s.set_constant('parameters.Ito_Block', var_ito[0])
+                   
+            s.pre(1000*bcl)
+            s.set_tolerance(1e-8, 1e-8)
+            vt=0.9*s.state()[m.get('membrane.V').indice()]
+            vt30 = 0.3*s.state()[m.get('membrane.V').indice()]
+            vt50 = 0.5*s.state()[m.get('membrane.V').indice()]
+            vt70 = 0.7*s.state()[m.get('membrane.V').indice()]
+            vt_rmp=s.state()[m.get('membrane.V').indice()]
+            d, apds = s.run(1000, apd_threshold=vt, log_interval=0.1)
+            duration = apds ['duration'] [0]
+            dvdtmax = np.max(d['dot(membrane.V)'])
+            apd30 = d.apd(v='membrane.V', threshold = vt30)
+            apd50 = d.apd(v='membrane.V', threshold = vt50)
+            apd70 = d.apd(v='membrane.V', threshold = vt70)
+            APA = abs(vt_rmp - np.max(d['membrane.V'])) #AP amplitude
+            
+            return d, var_ina[0], var_inal[0], var_ical[0], var_ito[0], var_ikr[0], var_iks[0], var_ik1[0], var_incx[0], var_ikur[0], var_inak[0], apd30[0][1], apd50[0][1], apd70[0][1], duration, APA, dvdtmax, vt_rmp
+        
+        ###################################################################################    
+        CL = 1000
+        Chloro_dose = 0 #10
+        ISO = 0 #np.random.uniform(low=0.1, high=1.0, size=(1,)) #1
+        datalog, var_ina, var_inal, var_ical, var_ito, var_ikr, var_iks, var_ik1, var_incx, var_ikur, var_inak, apd30, apd50, apd70, apd, APA, dvdtmax, rmp = runProtocol(m, CL, ISO, Chloro_dose) 
+        CaT = 1*((max(datalog['output.Cai'])) - (min(datalog['output.Cai'])))
+                    
+        print "APD = " + str(apd) + ", RMP = " + str(rmp) 
+        
+        pl.figure("Population model")
+        pl.subplot(2,1,1)
+        pl.plot(datalog['engine.time'], datalog['membrane.V'], '-b')        
+        pl.subplot(2,1,2)
+        pl.plot(datalog['engine.time'], datalog['output.Cai'], '-b')
+        pl.show()
+        pl.savefig("POPULATION DATA/population_model_heijman.png")
+
+        ############################PRINT#######################################
+        Vm1 = datalog['membrane.V']
+        print_material1 = (var_ina, var_inal, var_ical, var_ito, var_ikr, var_iks, var_ik1, var_incx, var_ikur, var_inak, ISO, apd30, apd50, apd70, apd, APA, dvdtmax, rmp, CaT)
+        CaT1 = datalog['output.Cai']
+        writer1.writerow(print_material1)
+        writer2.writerow(Vm1)
+        writer3.writerow(CaT1)
+
