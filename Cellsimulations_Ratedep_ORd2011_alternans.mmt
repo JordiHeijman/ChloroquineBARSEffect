@@ -1,0 +1,303 @@
+[[model]]
+
+[engine]
+time = 0 bind time
+    in [ms]
+
+[membrane]
+level = 0 bind pace
+
+[[protocol]]
+# Level  Start    Length   Period   Multiplier
+1.0      100.0    0.5      1000.0   0
+
+[[script]]
+import matplotlib.pyplot as pl
+import numpy as np
+import myokit
+from scipy.optimize import curve_fit
+import myokit.lib.fit as fit
+
+# Get model and protocol, create simulation
+#m, p, s = myokit.load("Human LV Epi (O'Hara-2011).mmt")
+m, p, s = myokit.load("Human LV Epi (O'Hara-2011)_Sobie.mmt")
+
+################################################################
+def runProtocol(m, bcl, ISO_act, chloroquine_dose, azithromycin_dose):
+    p = myokit.Protocol()
+    p.schedule(1, 0, 1.0, bcl, 0)
+    
+    # IC50 data from Crumb et al 2016
+    ina_block = 0 + (chloroquine_dose**0.7034)*(1 - 0)/(chloroquine_dose**0.7034 + 250.9**0.7034)
+    inal_block = 0 + (chloroquine_dose**0.5205)*(1 - 0)/(chloroquine_dose**0.5205 + 198**0.5205)
+    ikr_block = 0 + (chloroquine_dose**0.6141)*(1 - 0)/(chloroquine_dose**0.6141 + 6.892**0.6141)
+    iks_block = 0 + (chloroquine_dose**1.075)*(1 - 0)/(chloroquine_dose**1.075 + 110.7**1.075)
+    ik1_block = 0 + (chloroquine_dose**0.8199)*(1 - 0)/(chloroquine_dose**0.8199 + 10.59**0.8199)
+    ito_block = 0 + (chloroquine_dose**0.2734)*(1 - 0)/(chloroquine_dose**0.2734 + 4783325**0.2734)
+    ical_block = 0 + (chloroquine_dose**0.2396)*(1 - 0)/(chloroquine_dose**0.2396 + 3253459**0.2396)
+
+    print "INaB Chloroquine " + str(chloroquine_dose) + " mcM = " + str(ina_block) + ", INaLB = " + str(inal_block) + ", IKrB = " + str(ikr_block) + ", IKsB = " + str(iks_block) + ", IK1B = " + str(ik1_block) + ", ItoB = " + str(ito_block) + ", ICaLB = " + str(ical_block)
+
+    ina_block_azi = 0 + (azithromycin_dose**1.867)*(1 - 0)/(azithromycin_dose**1.867 + 790.3**1.867)
+    inal_block_azi = 0 + (azithromycin_dose**1.857)*(1 - 0)/(azithromycin_dose**1.857 + 189**1.857)
+    ikr_block_azi = 0 + (azithromycin_dose**0.472)*(1 - 0)/(azithromycin_dose**0.472 + 66.19**0.472)
+    iks_block_azi = 0 + (azithromycin_dose**1.355)*(1 - 0)/(azithromycin_dose**1.355 + 470.4**1.355)
+    ik1_block_azi = 0 + (azithromycin_dose**10.26)*(1 - 0)/(azithromycin_dose**10.26 + 410**10.26)
+    ito_block_azi = 0 + (azithromycin_dose**0.5175)*(1 - 0)/(azithromycin_dose**0.5175 + 88.54**0.5175)
+    ical_block_azi = 0 + (azithromycin_dose**2.115)*(1 - 0)/(azithromycin_dose**2.115 + 702.3**2.115)
+    
+    print "INaB Azithromycin " + str(azithromycin_dose) + " mcM = " + str(ina_block_azi) + ", INaLB = " + str(inal_block_azi) + ", IKrB = " + str(ikr_block_azi) + ", IKsB = " + str(iks_block_azi) + ", IK1B = " + str(ik1_block_azi) + ", ItoB = " + str(ito_block_azi) + ", ICaLB = " + str(ical_block_azi)
+    
+    s = myokit.Simulation(m, p, apd_var='membrane.V')
+    s.set_constant('parameters.bars', ISO_act)
+    s.set_constant('parameters.chloro_INa_Block', ina_block)
+    s.set_constant('parameters.chloro_INaL_Block', inal_block)
+    s.set_constant('parameters.chloro_IKr_Block', ikr_block)
+    s.set_constant('parameters.chloro_IKs_Block', iks_block)
+    s.set_constant('parameters.chloro_IK1_Block', ik1_block)
+    s.set_constant('parameters.chloro_Ito_Block', ito_block)
+    s.set_constant('parameters.chloro_ICaL_Block', ical_block)
+    
+    s.set_constant('parameters.azithro_INa_Block', ina_block_azi)
+    s.set_constant('parameters.azithro_INaL_Block', inal_block_azi)
+    s.set_constant('parameters.azithro_IKr_Block', ikr_block_azi)
+    s.set_constant('parameters.azithro_IKs_Block', iks_block_azi)
+    s.set_constant('parameters.azithro_IK1_Block', ik1_block_azi)
+    s.set_constant('parameters.azithro_Ito_Block', ito_block_azi)
+    s.set_constant('parameters.azithro_ICaL_Block', ical_block_azi)
+        
+    s.pre(1000*bcl)
+    s.set_tolerance(1e-8, 1e-8)
+    vt=0.9*s.state()[m.get('membrane.V').indice()]
+    vt_rmp=s.state()[m.get('membrane.V').indice()]
+    d, apds = s.run(2*bcl, apd_threshold=vt, log_interval=1)
+    if not apds['duration']:
+        duration1 = 0
+        duration2 = 0
+    else:
+        duration1 = apds['duration'][0]
+        duration2 = apds['duration'][1]
+    dvdtmax = np.max(d['dot(membrane.V)'])
+    
+    return d, duration1, duration2, dvdtmax, vt_rmp
+
+###################################################################################
+"""
+# 1Hz
+CL = 1000
+datalog_1Hz_nobeta, apd_1Hz_nobeta, dvdtmax_1Hz_nobeta, rmp_1Hz_nobeta = runProtocol(m, CL, 0, 0, 0) 
+datalog_1Hz_beta, apd_1Hz_beta, dvdtmax_1Hz_beta, rmp_1Hz_beta = runProtocol(m, CL, 1, 0, 0) 
+datalog_1Hz_nobeta_chloro10, apd_1Hz_nobeta_chloro10, dvdtmax_1Hz_nobeta_chloro10, rmp_1Hz_nobeta_chloro10 = runProtocol(m, CL, 0, 5, 0) #Chloroquine 5 microM 
+datalog_1Hz_beta_chloro10, apd_1Hz_beta_chloro10, dvdtmax_1Hz_beta_chloro10, rmp_1Hz_beta_chloro10 = runProtocol(m, CL, 1, 5, 0) #Chloroquine 5 microM
+datalog_1Hz_nobeta_azi20, apd_1Hz_nobeta_azi20, dvdtmax_1Hz_nobeta_azi20, rmp_1Hz_nobeta_azi20 = runProtocol(m, CL, 0, 0, 20) #Azithromycin 20 microM
+datalog_1Hz_beta_azi20, apd_1Hz_beta_azi20, dvdtmax_1Hz_beta_azi20, rmp_1Hz_beta_azi20 = runProtocol(m, CL, 1, 0, 20) #Azithromycin 20 microM
+datalog_1Hz_nobeta_combi, apd_1Hz_nobeta_combi, dvdtmax_1Hz_nobeta_combi, rmp_1Hz_nobeta_combi = runProtocol(m, CL, 0, 5, 20) #Combi
+datalog_1Hz_beta_combi, apd_1Hz_beta_combi, dvdtmax_1Hz_beta_combi, rmp_1Hz_beta_combi = runProtocol(m, CL, 1, 5, 20) #Combi
+
+# 2Hz
+CL = 500
+datalog_2Hz_nobeta, apd_2Hz_nobeta, dvdtmax_2Hz_nobeta, rmp_2Hz_nobeta = runProtocol(m, CL, 0, 0, 0) 
+datalog_2Hz_beta, apd_2Hz_beta, dvdtmax_2Hz_beta, rmp_2Hz_beta = runProtocol(m, CL, 1, 0, 0) 
+datalog_2Hz_nobeta_chloro10, apd_2Hz_nobeta_chloro10, dvdtmax_2Hz_nobeta_chloro10, rmp_2Hz_nobeta_chloro10 = runProtocol(m, CL, 0, 5, 0) #Chloroquine 5 microM 
+datalog_2Hz_beta_chloro10, apd_2Hz_beta_chloro10, dvdtmax_2Hz_beta_chloro10, rmp_2Hz_beta_chloro10 = runProtocol(m, CL, 1, 5, 0) #Chloroquine 5 microM
+datalog_2Hz_nobeta_azi20, apd_2Hz_nobeta_azi20, dvdtmax_2Hz_nobeta_azi20, rmp_2Hz_nobeta_azi20 = runProtocol(m, CL, 0, 0, 20) #Azithromycin 20 microM
+datalog_2Hz_beta_azi20, apd_2Hz_beta_azi20, dvdtmax_2Hz_beta_azi20, rmp_2Hz_beta_azi20 = runProtocol(m, CL, 1, 0, 20) #Azithromycin 20 microM
+datalog_2Hz_nobeta_combi, apd_2Hz_nobeta_combi, dvdtmax_2Hz_nobeta_combi, rmp_2Hz_nobeta_combi = runProtocol(m, CL, 0, 5, 20) #Combi
+datalog_2Hz_beta_combi, apd_2Hz_beta_combi, dvdtmax_2Hz_beta_combi, rmp_2Hz_beta_combi = runProtocol(m, CL, 1, 5, 20) #Combi
+
+# 3Hz
+CL = 333
+datalog_3Hz_nobeta, apd_3Hz_nobeta, dvdtmax_3Hz_nobeta, rmp_3Hz_nobeta = runProtocol(m, CL, 0, 0, 0) 
+datalog_3Hz_beta, apd_3Hz_beta, dvdtmax_3Hz_beta, rmp_3Hz_beta = runProtocol(m, CL, 1, 0, 0) 
+datalog_3Hz_nobeta_chloro10, apd_3Hz_nobeta_chloro10, dvdtmax_3Hz_nobeta_chloro10, rmp_3Hz_nobeta_chloro10 = runProtocol(m, CL, 0, 5, 0) #Chloroquine 5 microM 
+datalog_3Hz_beta_chloro10, apd_3Hz_beta_chloro10, dvdtmax_3Hz_beta_chloro10, rmp_3Hz_beta_chloro10 = runProtocol(m, CL, 1, 5, 0) #Chloroquine 5 microM
+datalog_3Hz_nobeta_azi20, apd_3Hz_nobeta_azi20, dvdtmax_3Hz_nobeta_azi20, rmp_3Hz_nobeta_azi20 = runProtocol(m, CL, 0, 0, 20) #Azithromycin 20 microM
+datalog_3Hz_beta_azi20, apd_3Hz_beta_azi20, dvdtmax_3Hz_beta_azi20, rmp_3Hz_beta_azi20 = runProtocol(m, CL, 1, 0, 20) #Azithromycin 20 microM
+datalog_3Hz_nobeta_combi, apd_3Hz_nobeta_combi, dvdtmax_3Hz_nobeta_combi, rmp_3Hz_nobeta_combi = runProtocol(m, CL, 0, 5, 20) #Combi
+datalog_3Hz_beta_combi, apd_3Hz_beta_combi, dvdtmax_3Hz_beta_combi, rmp_3Hz_beta_combi = runProtocol(m, CL, 1, 5, 20) #Combi
+
+print "1 Hz - APD NO beta adrenergic = " + str(apd_1Hz_nobeta) + ", APD beta adrenergic = " + str(apd_1Hz_beta) 
+print "2 Hz - APD NO beta adrenergic = " + str(apd_2Hz_nobeta) + ", APD beta adrenergic = " + str(apd_2Hz_beta) 
+print "3 Hz - APD NO beta adrenergic = " + str(apd_3Hz_nobeta) + ", APD beta adrenergic = " + str(apd_3Hz_beta) 
+print "Chloro 10 - 1 Hz - APD NO beta adrenergic = " + str(apd_1Hz_nobeta_chloro10) + ", APD beta adrenergic = " + str(apd_1Hz_beta_chloro10) 
+print "Chloro 10 - 2 Hz - APD NO beta adrenergic = " + str(apd_2Hz_nobeta_chloro10) + ", APD beta adrenergic = " + str(apd_2Hz_beta_chloro10) 
+print "Chloro 10 - 3 Hz - APD NO beta adrenergic = " + str(apd_3Hz_nobeta_chloro10) + ", APD beta adrenergic = " + str(apd_3Hz_beta_chloro10) 
+print "Azi 20 - 1 Hz - APD NO beta adrenergic = " + str(apd_1Hz_nobeta_azi20) + ", APD beta adrenergic = " + str(apd_1Hz_beta_azi20) 
+print "Azi 20 - 2 Hz - APD NO beta adrenergic = " + str(apd_2Hz_nobeta_azi20) + ", APD beta adrenergic = " + str(apd_2Hz_beta_azi20) 
+print "Azi 20 - 3 Hz - APD NO beta adrenergic = " + str(apd_3Hz_nobeta_azi20) + ", APD beta adrenergic = " + str(apd_3Hz_beta_azi20) 
+print "Combi - 1 Hz - APD NO beta adrenergic = " + str(apd_1Hz_nobeta_combi) + ", APD beta adrenergic = " + str(apd_1Hz_beta_combi) 
+print "Combi - 2 Hz - APD NO beta adrenergic = " + str(apd_2Hz_nobeta_combi) + ", APD beta adrenergic = " + str(apd_2Hz_beta_combi) 
+print "Combi - 3 Hz - APD NO beta adrenergic = " + str(apd_3Hz_nobeta_combi) + ", APD beta adrenergic = " + str(apd_3Hz_beta_combi) 
+
+pl.figure("AP 1-2-3 Hz")
+pl.subplot(3,3,1)
+pl.plot(datalog_1Hz_nobeta['engine.time'], datalog_1Hz_nobeta['membrane.V'], '-k')   
+pl.plot(datalog_1Hz_beta['engine.time'], datalog_1Hz_beta['membrane.V'], '-r')    
+pl.plot(datalog_1Hz_nobeta_chloro10['engine.time'], datalog_1Hz_nobeta_chloro10['membrane.V'], '--k')   
+pl.plot(datalog_1Hz_beta_chloro10['engine.time'], datalog_1Hz_beta_chloro10['membrane.V'], '--r')     
+pl.subplot(3,3,2)
+pl.plot(datalog_2Hz_nobeta['engine.time'], datalog_2Hz_nobeta['membrane.V'], '-k')   
+pl.plot(datalog_2Hz_beta['engine.time'], datalog_2Hz_beta['membrane.V'], '-b')  
+pl.plot(datalog_2Hz_nobeta_chloro10['engine.time'], datalog_2Hz_nobeta_chloro10['membrane.V'], '--k')   
+pl.plot(datalog_2Hz_beta_chloro10['engine.time'], datalog_2Hz_beta_chloro10['membrane.V'], '--b')  
+pl.subplot(3,3,3)
+pl.plot(datalog_3Hz_nobeta['engine.time'], datalog_3Hz_nobeta['membrane.V'], '-k')   
+pl.plot(datalog_3Hz_beta['engine.time'], datalog_3Hz_beta['membrane.V'], '-g')  
+pl.plot(datalog_3Hz_nobeta_chloro10['engine.time'], datalog_3Hz_nobeta_chloro10['membrane.V'], '--k')   
+pl.plot(datalog_3Hz_beta_chloro10['engine.time'], datalog_3Hz_beta_chloro10['membrane.V'], '--g')  
+pl.subplot(3,3,4)
+pl.plot(datalog_1Hz_nobeta['engine.time'], datalog_1Hz_nobeta['calcium.Ca'], '-k')   
+pl.plot(datalog_1Hz_beta['engine.time'], datalog_1Hz_beta['calcium.Ca'], '-r')  
+pl.plot(datalog_1Hz_nobeta_chloro10['engine.time'], datalog_1Hz_nobeta_chloro10['calcium.Ca'], '--k')   
+pl.plot(datalog_1Hz_beta_chloro10['engine.time'], datalog_1Hz_beta_chloro10['calcium.Ca'], '--r')  
+pl.subplot(3,3,5)
+pl.plot(datalog_2Hz_nobeta['engine.time'], datalog_2Hz_nobeta['calcium.Ca'], '-k')   
+pl.plot(datalog_2Hz_beta['engine.time'], datalog_2Hz_beta['calcium.Ca'], '-b')  
+pl.plot(datalog_2Hz_nobeta_chloro10['engine.time'], datalog_2Hz_nobeta_chloro10['calcium.Ca'], '--k')   
+pl.plot(datalog_2Hz_beta_chloro10['engine.time'], datalog_2Hz_beta_chloro10['calcium.Ca'], '--b')  
+pl.subplot(3,3,6)
+pl.plot(datalog_3Hz_nobeta['engine.time'], datalog_3Hz_nobeta['calcium.Ca'], '-k')   
+pl.plot(datalog_3Hz_beta['engine.time'], datalog_3Hz_beta['calcium.Ca'], '-g')  
+pl.plot(datalog_3Hz_nobeta_chloro10['engine.time'], datalog_3Hz_nobeta_chloro10['calcium.Ca'], '--k')   
+pl.plot(datalog_3Hz_beta_chloro10['engine.time'], datalog_3Hz_beta_chloro10['calcium.Ca'], '--g')  
+pl.subplot(3,3,7)
+pl.plot(datalog_1Hz_nobeta['engine.time'], datalog_1Hz_nobeta['sodium.Na'], '-k')   
+pl.plot(datalog_1Hz_beta['engine.time'], datalog_1Hz_beta['sodium.Na'], '-r')  
+pl.plot(datalog_1Hz_nobeta_chloro10['engine.time'], datalog_1Hz_nobeta_chloro10['sodium.Na'], '--k')   
+pl.plot(datalog_1Hz_beta_chloro10['engine.time'], datalog_1Hz_beta_chloro10['sodium.Na'], '--r')  
+pl.subplot(3,3,8)
+pl.plot(datalog_2Hz_nobeta['engine.time'], datalog_2Hz_nobeta['sodium.Na'], '-k')   
+pl.plot(datalog_2Hz_beta['engine.time'], datalog_2Hz_beta['sodium.Na'], '-b')  
+pl.plot(datalog_2Hz_nobeta_chloro10['engine.time'], datalog_2Hz_nobeta_chloro10['sodium.Na'], '--k')   
+pl.plot(datalog_2Hz_beta_chloro10['engine.time'], datalog_2Hz_beta_chloro10['sodium.Na'], '--b')  
+pl.subplot(3,3,9)
+pl.plot(datalog_3Hz_nobeta['engine.time'], datalog_3Hz_nobeta['sodium.Na'], '-k')   
+pl.plot(datalog_3Hz_beta['engine.time'], datalog_3Hz_beta['sodium.Na'], '-g')  
+pl.plot(datalog_3Hz_nobeta_chloro10['engine.time'], datalog_3Hz_nobeta_chloro10['sodium.Na'], '--k')   
+pl.plot(datalog_3Hz_beta_chloro10['engine.time'], datalog_3Hz_beta_chloro10['sodium.Na'], '--g')  
+pl.show()
+"""
+"""
+CL = 250
+datalog_4Hz_nobeta, apd_4Hz_nobeta, dvdtmax_4Hz_nobeta, rmp_4Hz_nobeta = runProtocol(m, CL, 0, 0, 0) 
+datalog_4Hz_nobeta_azi20, apd_4Hz_nobeta_azi20, dvdtmax_4Hz_nobeta_azi20, rmp_4Hz_nobeta_azi20 = runProtocol(m, CL, 0, 0, 20) #Azi 20 microM 
+
+pl.figure()
+pl.subplot(3,1,1)
+pl.plot(datalog_4Hz_nobeta['engine.time'], datalog_4Hz_nobeta['membrane.V'], '-k')  
+pl.plot(datalog_4Hz_nobeta_azi20['engine.time'], datalog_4Hz_nobeta_azi20['membrane.V'], '--b')   
+pl.subplot(3,1,2)
+pl.plot(datalog_4Hz_nobeta['engine.time'], datalog_4Hz_nobeta['calcium.Ca'], '-k')   
+pl.plot(datalog_4Hz_nobeta_azi20['engine.time'], datalog_4Hz_nobeta_azi20['calcium.Ca'], '--b')   
+pl.subplot(3,1,3)
+pl.plot(datalog_4Hz_nobeta['engine.time'], datalog_4Hz_nobeta['sodium.Na'], '-k')   
+pl.plot(datalog_4Hz_nobeta_azi20['engine.time'], datalog_4Hz_nobeta_azi20['sodium.Na'], '--b')   
+pl.show()
+"""
+##Rate dependent
+freq = [0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3, 3.5, 4.0]
+
+apd_nobeta = []
+apd_beta = []
+apd2_nobeta = []
+apd2_beta = []
+rmp_nobeta = []
+rmp_beta = []
+apd_nobeta_chloro10 = []
+apd_beta_chloro10 = []
+apd2_nobeta_chloro10 = []
+apd2_beta_chloro10 = []
+rmp_nobeta_chloro10 = []
+rmp_beta_chloro10 = []
+apd_nobeta_azi20 = []
+apd_beta_azi20 = []
+apd2_nobeta_azi20 = []
+apd2_beta_azi20 = []
+rmp_nobeta_azi20 = []
+rmp_beta_azi20 = []
+apd_nobeta_combi = []
+apd_beta_combi = []
+apd2_nobeta_combi = []
+apd2_beta_combi = []
+rmp_nobeta_combi = []
+rmp_beta_combi = []
+for rate in freq:
+    cycle = np.around(1000/rate)
+    datalog_nobetastim, apd_nobetastim, apd2_nobetastim, dvdtmax_nobetastim, rmp_nobetastim = runProtocol(m, cycle, 0, 0, 0) 
+    datalog_betastim, apd_betastim, apd2_betastim, dvdtmax_betastim, rmp_betastim = runProtocol(m, cycle, 1, 0, 0) 
+    datalog_nobetastim_chloro10, apd_nobetastim_chloro10, apd2_nobetastim_chloro10, dvdtmax_nobetastim_chloro10, rmp_nobetastim_chloro10 = runProtocol(m, cycle, 0, 5, 0) 
+    datalog_betastim_chloro10, apd_betastim_chloro10, apd2_betastim_chloro10, dvdtmax_betastim_chloro10, rmp_betastim_chloro10 = runProtocol(m, cycle, 1, 5, 0) 
+    datalog_nobetastim_azi20, apd_nobetastim_azi20, apd2_nobetastim_azi20, dvdtmax_nobetastim_azi20, rmp_nobetastim_azi20 = runProtocol(m, cycle, 0, 0, 20) 
+    datalog_betastim_azi20, apd_betastim_azi20, apd2_betastim_azi20, dvdtmax_betastim_azi20, rmp_betastim_azi20 = runProtocol(m, cycle, 1, 0, 20) 
+    datalog_nobetastim_combi, apd_nobetastim_combi, apd2_nobetastim_combi, dvdtmax_nobetastim_combi, rmp_nobetastim_combi = runProtocol(m, cycle, 0, 5, 20) 
+    datalog_betastim_combi, apd_betastim_combi, apd2_betastim_combi, dvdtmax_betastim_combi, rmp_betastim_combi = runProtocol(m, cycle, 1, 5, 20) 
+    apd_nobeta.append(apd_nobetastim)
+    apd_beta.append(apd_betastim)
+    apd2_nobeta.append(apd2_nobetastim)
+    apd2_beta.append(apd2_betastim)
+    rmp_nobeta.append(rmp_nobetastim)
+    rmp_beta.append(rmp_betastim)
+    apd_nobeta_chloro10.append(apd_nobetastim_chloro10)
+    apd_beta_chloro10.append(apd_betastim_chloro10)
+    apd2_nobeta_chloro10.append(apd2_nobetastim_chloro10)
+    apd2_beta_chloro10.append(apd2_betastim_chloro10)
+    rmp_nobeta_chloro10.append(rmp_nobetastim_chloro10)
+    rmp_beta_chloro10.append(rmp_betastim_chloro10)
+    apd_nobeta_azi20.append(apd_nobetastim_azi20)
+    apd_beta_azi20.append(apd_betastim_azi20)
+    apd2_nobeta_azi20.append(apd2_nobetastim_azi20)
+    apd2_beta_azi20.append(apd2_betastim_azi20)
+    rmp_nobeta_azi20.append(rmp_nobetastim_azi20)
+    rmp_beta_azi20.append(rmp_betastim_azi20)
+    apd_nobeta_combi.append(apd_nobetastim_combi)
+    apd_beta_combi.append(apd_betastim_combi)
+    apd2_nobeta_combi.append(apd2_nobetastim_combi)
+    apd2_beta_combi.append(apd2_betastim_combi)
+    rmp_nobeta_combi.append(rmp_nobetastim_combi)
+    rmp_beta_combi.append(rmp_betastim_combi)
+
+print apd_nobeta
+print apd_beta
+print apd2_nobeta
+print apd2_beta
+#print rmp_nobeta
+#print rmp_beta
+print apd_nobeta_chloro10
+print apd_beta_chloro10
+print apd2_nobeta_chloro10
+print apd2_beta_chloro10
+#print rmp_nobeta_chloro10
+#print rmp_beta_chloro10
+print apd_nobeta_azi20
+print apd_beta_azi20
+print apd2_nobeta_azi20
+print apd2_beta_azi20
+#print rmp_nobeta_azi20
+#print rmp_beta_azi20
+print apd_nobeta_combi
+print apd_beta_combi
+print apd2_nobeta_combi
+print apd2_beta_combi
+#print rmp_nobeta_combi
+#print rmp_beta_combi
+                
+pl.figure("Rate dependence")
+pl.title("APD vs Rate")
+pl.plot(freq, apd_nobeta, '-k')
+pl.plot(freq, apd_beta, '-r')
+pl.plot(freq, apd_nobeta_chloro10, '--k')
+pl.plot(freq, apd_beta_chloro10, '--r')
+pl.plot(freq, apd_nobeta_azi20, ':k')
+pl.plot(freq, apd_beta_azi20, ':r')
+pl.plot(freq, apd_nobeta_combi, '-.k')
+pl.plot(freq, apd_beta_combi, '-.r')
+pl.plot(freq, apd2_nobeta, '-k')
+pl.plot(freq, apd2_beta, '-r')
+pl.plot(freq, apd2_nobeta_chloro10, '--k')
+pl.plot(freq, apd2_beta_chloro10, '--r')
+pl.plot(freq, apd2_nobeta_azi20, ':k')
+pl.plot(freq, apd2_beta_azi20, ':r')
+pl.plot(freq, apd2_nobeta_combi, '-.k')
+pl.plot(freq, apd2_beta_combi, '-.r')
+pl.show()
+

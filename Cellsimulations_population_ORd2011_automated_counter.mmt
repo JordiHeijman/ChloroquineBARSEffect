@@ -1,0 +1,73 @@
+[[model]]
+
+[engine]
+time = 0 bind time
+    in [ms]
+
+[membrane]
+level = 0 bind pace
+
+[[protocol]]
+# Level  Start    Length   Period   Multiplier
+1.0      100.0    0.5      1000.0   0
+
+[[script]]
+import matplotlib.pyplot as pl
+import numpy as np
+import myokit
+from scipy.optimize import curve_fit
+import myokit.lib.fit as fit
+import csv
+from scipy.signal import argrelextrema
+
+loc = "POPULATION DATA/Human Ord/combi_icalwindow_3_beta/"
+#loc = "POPULATION DATA/Human Ord/combi_hypokal_2_icalwindow_3_beta/"
+
+with open(loc + "population_Vm_ord.csv") as csvfile:
+    reader = csv.reader(csvfile)
+    Normal = []
+    EAD = []
+    RF = []    
+    for k, row in enumerate(reader):
+        Vm = [float(i) for i in row]
+        Vm = np.array(Vm)
+        time = np.arange(0, 1000, 0.1)
+        
+        pl.figure("AP - presorting")
+        pl.plot(time, Vm, '-k')
+        pl.show()
+                
+        ## SORTING ##
+        #if np.float(Vm[-1]) < -50 and np.float(Vm[0]) < -50: ## for 1 Hz ##
+        if np.float(Vm[5000]) < -50 and np.float(Vm[-1]) < -50: ## for 2 Hz ##
+            extrema = argrelextrema(Vm[1500:5000], np.greater)[0]
+            extrema2 = argrelextrema(Vm[6500:10000], np.greater)[0]
+            if len(extrema) > 0 or len(extrema2) > 0:
+                EAD.append(k)
+                pl.figure("AP_EAD")
+                pl.plot(time, Vm, '-b')
+                pl.show()
+            else:
+                Normal.append(k)
+                pl.figure("AP_normal")
+                pl.plot(time, Vm, '-g')
+                pl.show()
+        else:
+            RF.append(k)
+            pl.figure("AP_RF")
+            pl.plot(time, Vm, '-r')
+            pl.show() 
+            
+    numNormal = len(Normal)
+    numEAD = len(EAD)
+    numRF = len(RF)
+    Total = numNormal + numEAD + numRF
+    print "Number of Normal = " + str(numNormal) + ", percentage = " + str(numNormal / float(Total) * 100)
+    print "Number of EAD = " + str(numEAD) + ", percentage = " + str(numEAD / float(Total) * 100)   
+    print "Number of RF = " + str(numRF) + ", percentage = " + str(numRF / float(Total) * 100)
+
+    TEXT = np.array(["Number of Normal = ", ", percentage = ", "Number of EAD = ", ", percentage = ", "Number of RF = ", ", percentage = "])
+    VALUE = np.array([numNormal, numNormal / float(Total) * 100, numEAD, numEAD / float(Total) * 100, numRF, numRF / float(Total) * 100])
+    DATA = np.column_stack((TEXT, VALUE))
+    np.savetxt(loc + "LOG.txt", DATA, delimiter=" ", fmt="%s")
+
