@@ -5,7 +5,7 @@ Henry Sutanto and Jordi Heijman
 
 This GitHub page contains the source codes in Myokit file format (.mmt) for:
 
-1. Base model of Heijman 2011 Canine Ventricular Epicardium 
+1. Base model of Heijman 2011 Canine Ventricular Epicardium and O'Hara-Rudy 2011 Human Ventricular Epicardium (with BARS +/-)
 2. 0-dimensional simulation of CQ and AZM (rate dependence)
 3. Population-based study divided into 2 parts:
 	- Part 1 contains the code to generate random variability of ionic currents
